@@ -3,8 +3,23 @@
 #include <mudock/alpaka_implementation/queue_alpaka.hpp>
 #include <mudock/log.hpp>
 #include <stdexcept>
+#include <mutex>
 
 namespace mudock {
+  namespace alpaka_backend {
+    namespace {
+      constexpr int k_max_devices = 16;
+      device_kernel_lock alpaka_kernel_locks[k_max_devices];
+    } // namespace
+
+    device_kernel_lock* get_kernel_lock(int dev_id, const dev_acc& dev) {
+      if (!alpaka_kernel_locks[dev_id].event) {
+        alpaka_kernel_locks[dev_id].event = std::make_unique<event_acc>(dev);
+      }
+      return &alpaka_kernel_locks[dev_id];
+    }
+  } // namespace alpaka_backend
+
   struct queue_alpaka::impl {
     dev_acc device;
     queue_acc queue;

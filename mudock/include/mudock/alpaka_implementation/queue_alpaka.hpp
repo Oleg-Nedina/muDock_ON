@@ -24,12 +24,12 @@ namespace mudock {
     queue_alpaka& operator=(queue_alpaka&&) noexcept = delete;
 
     template<class F, class... Args>
-    inline void invoke_kernel(const index3D gridDim, const index3D blockDim, Args&&... args);
+    inline void invoke_kernel(const index3D gridDim, Args&&... args);
 
     template<class F, class... Args>
-    inline void invoke_kernel(const int gridDim, const int blockDim, Args&&... args);
+    inline void invoke_kernel(const int gridDim, Args&&... args);
 
-    static constexpr int block_threads(const int requested_threads);
+    static constexpr int block_threads();
 
     queue_acc& native_queue();
     const dev_acc& native_device() const;

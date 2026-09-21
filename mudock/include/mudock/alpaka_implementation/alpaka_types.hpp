@@ -1,7 +1,8 @@
 #pragma once
 
 #include <alpaka/alpaka.hpp>
-
+#include <mutex>
+#include <memory>
 #include <cstddef>
 
 namespace mudock::alpaka_backend {
@@ -26,6 +27,23 @@ namespace mudock::alpaka_backend {
   #error "MUDOCK_ALPAKA_BACKEND_* compile definition is required when MUDOCK_USE_ALPAKA is enabled"
 #endif
 
-  using dev_acc = alpaka::Dev<acc>;
+  using dev_acc   = alpaka::Dev<acc>;
   using queue_acc = alpaka::Queue<acc, alpaka::NonBlocking>;
+  using event_acc = alpaka::Event<queue_acc>;
+
+  struct device_kernel_lock {
+    std::mutex mutex;
+    std::unique_ptr<event_acc> event;
+    bool has_previous_event{false};
+  };
+
+  device_kernel_lock* get_kernel_lock(int dev_id, const dev_acc& dev);
 } // namespace mudock::alpaka_backend
+
+constexpr bool is_kernel_lock_enabled() {
+#ifdef MUDOCK_KERNEL_LOCK
+  return true;
+#else
+  return false;
+#endif
+}

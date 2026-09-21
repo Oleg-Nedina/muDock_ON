@@ -107,7 +107,6 @@ namespace mudock {
         [&](const auto atom_index) {
           const auto max_atoms = reorder_buffer<static_molecule>::atoms_clusters[atom_index];
           q->invoke_kernel<apply_alpaka<max_atoms>>(batch_ligands,
-                                                    MUDOCK_ALPAKA_BLOCK_SIZE,
                                                     chromsomes_per_ligand,
                                                     batch_atoms,
                                                     x_coords_b,
@@ -132,16 +131,32 @@ namespace mudock {
   template<>
   batch_multiple get_geom_transform_batch_multiple<queue_alpaka>(const int atoms,
                                                                  std::shared_ptr<queue_alpaka> q_b) {
+    batch_multiple bucket_multiple{};
     const auto& dev = q_b->native_device();
     const int num_sms = static_cast<int>(alpaka::getAccDevProps<alpaka_backend::acc>(dev).m_multiProcessorCount);
 
-#if defined(MUDOCK_ALPAKA_BACKEND_SERIAL) || defined(MUDOCK_ALPAKA_BACKEND_TBB) || defined(MUDOCK_ALPAKA_BACKEND_OMP2)
-    const int blocks_per_sm = 1;
-#else
-    const int blocks_per_sm = 16;
-#endif
+    constexpr_for<0, reorder_buffer<static_molecule>::get_num_atom_clusters(), 1>(
+        [&](const auto atom_index) {
+          const auto n_atoms = reorder_buffer<static_molecule>::atoms_clusters[atom_index];
+          if (atoms == n_atoms) {
+            if constexpr (MUDOCK_ALPAKA_BLOCK_SIZE == 1) {
+              // CPU backends
+              bucket_multiple = {1, num_sms};
+            } else {
+              // GPU backends
+              int blocks_per_sm = 16;
+              if constexpr (n_atoms > 64)  blocks_per_sm = 12;
+              if constexpr (n_atoms > 128) blocks_per_sm = 8;
+              if constexpr (n_atoms > 192) blocks_per_sm = 4;
+              bucket_multiple = {blocks_per_sm, num_sms};
+            }
+          }
+        });
 
-    mudock::info("ALPAKA GEOM batch multiple for ", atoms, " atoms -> ", blocks_per_sm * num_sms);
-    return {blocks_per_sm, num_sms};
+    if (bucket_multiple.total_multiple() <= 0)
+      throw std::runtime_error("Compilation error: there is a bucket of atoms number which it is not handled.");
+
+    mudock::info("ALPAKA GEOM batch multiple for ", atoms, " atoms -> ", bucket_multiple.total_multiple());
+    return normalize_batch_multiple(bucket_multiple);
   }
 } // namespace mudock

@@ -2,6 +2,8 @@
 
 #include <alpaka/alpaka.hpp>
 
+#include <cassert>
+
 #include <cstdint>
 #include <memory>
 #include <mudock/alpaka_implementation/queue_alpaka.hpp>
@@ -73,10 +75,12 @@ namespace mudock {
     auto* operator()() { return host.data(); }
 
     inline void alloc(const std::size_t num_elements) {
+      assert(num_elements > 0 && num_elements < (std::size_t(1) << 32));
       host.resize(num_elements);
       alloc_device(num_elements);
     };
     inline void alloc(const std::size_t num_elements, const int value) {
+      assert(num_elements > 0 && num_elements < (std::size_t(1) << 32));
       host.resize(num_elements, value);
       alloc_device(num_elements);
 

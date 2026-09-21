@@ -28,7 +28,7 @@ namespace mudock {
     state.alloc(num_elements);
 
     if (needs_init) {
-      q->invoke_kernel<init_alpaka_rand>(128, 32, state.dev_pointer(), seed, num_elements);
+      q->invoke_kernel<init_alpaka_rand>(128, state.dev_pointer(), seed, num_elements);
       q->synchronize();
     }
   }

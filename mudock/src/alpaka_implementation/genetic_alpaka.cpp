@@ -227,7 +227,6 @@ namespace mudock {
     alpaka_random_memory.get_data()->alloc(batch_ligands * MUDOCK_ALPAKA_BLOCK_SIZE, seed);
 
     q->invoke_kernel<initialize_alpaka>(batch_ligands,
-                                        MUDOCK_ALPAKA_BLOCK_SIZE,
                                         population_number,
                                         num_rotamers_b,
                                         population,
@@ -238,7 +237,6 @@ namespace mudock {
   template<>
   void genetic_kernel<queue_alpaka>::operator()() {
     q->invoke_kernel<iterate_alpaka>(batch_ligands,
-                                     MUDOCK_ALPAKA_BLOCK_SIZE,
                                      tournament_length,
                                      mutation_prob,
                                      population_number,
@@ -252,7 +250,6 @@ namespace mudock {
   template<>
   void genetic_kernel<queue_alpaka>::finalize() {
     q->invoke_kernel<finalize_alpaka>(batch_ligands,
-                                      MUDOCK_ALPAKA_BLOCK_SIZE,
                                       population_number,
                                       num_rotamers_b,
                                       scores_b,
