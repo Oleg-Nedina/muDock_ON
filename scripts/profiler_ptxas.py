@@ -99,7 +99,7 @@ def main():
         
         # Plot Registers
         sns.barplot(data=df, x="Kernel", y="Registers", hue="Backend", ax=axes[0], palette="Set2")
-        axes[0].set_title("Register Usage per Kernel (Lower is Better)")
+        axes[0].set_title("Register Usage per Kernel")
         axes[0].set_ylabel("Registers per Thread")
         
         # Add a red dashed line at 64 registers (common sweet spot for 100% occupancy on A100)

@@ -1,0 +1,3 @@
+[submodule "profile-scripts"]
+	path = profile-scripts
+	url = https://github.com/elvispolimi/profile-scripts.git

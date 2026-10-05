@@ -32,7 +32,7 @@ BACKENDS = [
 CONFIGS      = [(100, 1000)]   # (population, generations)
 WARMUP_RUNS  = 1
 RUNS         = 3
-TIMEOUT_SEC  = 300
+TIMEOUT_SEC  = 1200  # 20 minutes timeout per run
 
 FIELDNAMES   = ["Backend", "Population", "Generations", "Run", "Time (s)", "Throughput (Evals/s)"]
 
@@ -54,6 +54,10 @@ def warn(msg: str) -> None:
 def extract_total_time(text: str) -> float | None:
     m = re.search(r'\[\s*([\d\.]+)\s*\]\s*INFO All Done!', text)
     return float(m.group(1)) if m else None
+
+def extract_num_ligands(text: str) -> int:
+    m = re.search(r"Parsing\s+(\d+)\s+compound", text)
+    return int(m.group(1)) if m else 1
 
 def print_run_row(run_idx: int, total_runs: int, name: str, pop: int,
                   gen: int, time_s: float, throughput: float) -> None:
@@ -105,6 +109,8 @@ def run_rapid_benchmark() -> None:
                     "--use",         use_flag,
                     "--population",  str(pop),
                     "--generations", str(gen),
+                    "--search",      "genetic",
+                    "--seed",        "42",
                 ]
 
                 # ── Warmup ──
@@ -131,7 +137,9 @@ def run_rapid_benchmark() -> None:
                             warn(f"Time not found in output (run {r_idx + 1})")
                             continue
 
-                        evals_s = (pop * gen) / t
+                        num_ligands = extract_num_ligands(res.stdout)
+                        total_evals = num_ligands * pop * gen
+                        evals_s = total_evals / t
                         row = {
                             "Backend":             name,
                             "Population":          pop,

@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 
-RESULTS_DIR = "/work/onedina/muDock_ON/scripts"
+RESULTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def plot_macro_results(csv_filename, output_filename, title):
     csv_path = os.path.join(RESULTS_DIR, csv_filename)
@@ -57,7 +57,14 @@ def plot_macro_results(csv_filename, output_filename, title):
                                  fontsize=9, color='black', xytext=(0, 2), 
                                  textcoords='offset points')
 
-    plt.suptitle(title, fontsize=16, y=1.05)
+    # Unified external legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    for ax in axes:
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.04), ncol=len(labels), frameon=True, fontsize=11)
+
+    plt.suptitle(title, fontsize=16, y=1.12)
     plt.tight_layout()
     
     out_path = os.path.join(RESULTS_DIR, output_filename)
@@ -67,13 +74,10 @@ def plot_macro_results(csv_filename, output_filename, title):
 
 if __name__ == "__main__":
     print("Generating Final Macro Benchmark Plots...")
-    plot_macro_results(
-        "macro_results_global_single.csv", 
-        "macro_plot_global_single.pdf", 
-        "Global Macro Throughput (Dataset: Single 1FKB)"
-    )
-    plot_macro_results(
-        "macro_results_global_small_multi.csv", 
-        "macro_plot_global_small_multi.pdf", 
-        "Global Macro Throughput (Dataset: Small Multi)"
-    )
+    for ds in ["single", "small_multi"]:
+        ds_title = ds.replace("_", " ").title()
+        plot_macro_results(
+            f"macro_results_global_{ds}.csv", 
+            f"macro_plot_global_{ds}.pdf", 
+            f"Global Macro Throughput (Dataset: {ds_title})"
+        )

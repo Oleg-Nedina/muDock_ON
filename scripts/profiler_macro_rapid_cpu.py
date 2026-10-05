@@ -1,8 +1,8 @@
 """
 profiler_macro_rapid_cpu.py
-Rapid macro-profiling for CPU backends: 1 configuration (Pop=100, Gen=1000), 1 warmup + 3 runs.
-Covers both 'single' and 'small_multi' datasets.
-Produces: macro_results_rapid_cpu_{dataset}.csv
+Rapid macro-profiling for CPU backends: 1 configuration (Pop=20, Gen=100), 1 warmup + 3 runs.
+Uses only the 'single' dataset (1 ligand) to keep run time manageable on CPU.
+Produces: macro_results_rapid_cpu_single.csv
 """
 
 import subprocess
@@ -14,26 +14,26 @@ import sys
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
 DATASETS = {
-    "single": {
+    "cpu500": {
         "PROTEIN": "/work/onedina/muDock_ON/data/1fkb/1fkb_pocket.pdbqt",
-        "LIGAND":  "/work/onedina/muDock_ON/data/1fkb/1fkb_ligand.adtmol2",
-    }
+        "LIGAND":  "/work/onedina/muDock_ON/data/cpu_500lig.adtmol2",
+    },
 }
 
 BACKENDS = [
-    ("CPP Serial", "/work/onedina/muDock_ON/build/cpp/application/muDock", "CPP:CPU:0"),
-    ("Alpaka Serial (Unroll)", "/work/onedina/muDock_ON/build/alpaka-serial/application/muDock", "ALPAKA:CPU:0"),
-    ("Alpaka Serial (No Unroll)", "/work/onedina/muDock_ON/build/alpaka-serial-no-unroll/application/muDock", "ALPAKA:CPU:0"),
-    ("CPP OMP", "/work/onedina/muDock_ON/build/cpp-omp/application/muDock", "CPP:CPU:0"),
-    ("Alpaka OMP (Unroll)", "/work/onedina/muDock_ON/build/alpaka-omp/application/muDock", "ALPAKA:CPU:0"),
-    ("Alpaka OMP (No Unroll)", "/work/onedina/muDock_ON/build/alpaka-omp-no-unroll/application/muDock", "ALPAKA:CPU:0"),
+    ("CPP Serial",                "/work/onedina/muDock_ON/build/cpp/application/muDock",                    "CPP:CPU:0"),
+    ("Alpaka Serial (Unroll)",    "/work/onedina/muDock_ON/build/alpaka-serial/application/muDock",          "ALPAKA:CPU:0"),
+    ("Alpaka Serial (No Unroll)", "/work/onedina/muDock_ON/build/alpaka-serial-no-unroll/application/muDock","ALPAKA:CPU:0"),
+    ("CPP OMP",                   "/work/onedina/muDock_ON/build/cpp-omp/application/muDock",                "CPP:CPU:0"),
+    ("Alpaka OMP (Unroll)",       "/work/onedina/muDock_ON/build/alpaka-omp/application/muDock",             "ALPAKA:CPU:0"),
+    ("Alpaka OMP (No Unroll)",    "/work/onedina/muDock_ON/build/alpaka-omp-no-unroll/application/muDock",   "ALPAKA:CPU:0"),
 ]
 
-POPULATIONS  = [100]
-GENERATIONS  = [1000]
+POPULATIONS  = [5]
+GENERATIONS  = [10]
 WARMUP_RUNS  = 1
-RUNS         = 10
-TIMEOUT_SEC  = 300   # timeout per single run (seconds)
+RUNS         = 3
+TIMEOUT_SEC  = None
 
 FIELDNAMES   = ["Backend", "Population", "Generations", "Run",
                 "Total Evaluations", "Time (s)", "Throughput (Evals/s)"]
@@ -57,7 +57,13 @@ def extract_total_time(text: str) -> float | None:
     m = re.search(r'\[\s*([\d\.]+)\s*\]\s*INFO All Done!', text)
     return float(m.group(1)) if m else None
 
+def extract_num_ligands(text: str) -> int:
+    m = re.search(r"Parsing\s+(\d+)\s+compound", text)
+    return int(m.group(1)) if m else 1
+
 def progress_bar(current: int, total: int, width: int = 30) -> str:
+    if total == 0:
+        return f"[{'█'*width}] 100.0%"
     filled = int(width * current / total)
     bar    = "█" * filled + "░" * (width - filled)
     pct    = 100.0 * current / total
@@ -70,7 +76,7 @@ def run_macro_benchmark() -> None:
     total_tasks   = total_configs * RUNS
 
     banner(
-        f"MACRO CPU GLOBAL PROFILING  —  muDock  |  "
+        f"MACRO CPU RAPID PROFILING  —  muDock  |  "
         f"{len(POPULATIONS)}×{len(GENERATIONS)} grid  "
         f"|  {WARMUP_RUNS} Warmup + {RUNS} Runs"
     )
@@ -104,6 +110,8 @@ def run_macro_benchmark() -> None:
                     "--use",         use_flag,
                     "--population",  str(pop),
                     "--generations", str(gen),
+                    "--search",      "genetic",
+                    "--seed",        "42",
                 ]
 
                 # ── Warmup ──
@@ -126,7 +134,7 @@ def run_macro_benchmark() -> None:
                 for r_idx in range(RUNS):
                     task_done += 1
                     pb = progress_bar(task_done, total_tasks)
-                    print(f"  {pb}  {name:<6}  Pop:{pop:<5}  Gen:{gen:<6}  Run:{r_idx+1}/{RUNS}",
+                    print(f"  {pb}  {name:<30}  Pop:{pop:<5}  Gen:{gen:<6}  Run:{r_idx+1}/{RUNS}",
                           end="  ", flush=True)
                     try:
                         res = subprocess.run(
@@ -141,16 +149,18 @@ def run_macro_benchmark() -> None:
                             print("→ ⚠ time not found")
                             continue
 
-                        evals_s = (pop * gen) / t
+                        num_ligands = extract_num_ligands(res.stdout)
+                        total_evals = num_ligands * pop * gen
+                        evals_s = total_evals / t
                         run_times.append(t)
-                        print(f"→ {t:.3f}s  ({evals_s:,.0f} Evals/s)")
+                        print(f"→ {t:.3f}s  ({evals_s:,.0f} Evals/s [L:{num_ligands}])")
 
                         row = {
                             "Backend":              name,
                             "Population":           pop,
                             "Generations":          gen,
                             "Run":                  r_idx + 1,
-                            "Total Evaluations":    pop * gen,
+                            "Total Evaluations":    total_evals,
                             "Time (s)":             t,
                             "Throughput (Evals/s)": evals_s,
                         }
@@ -165,7 +175,7 @@ def run_macro_benchmark() -> None:
 
                 if run_times:
                     avg_t    = sum(run_times) / len(run_times)
-                    avg_eval = (pop * gen) / avg_t
+                    avg_eval = total_evals / avg_t
                     print(f"         └─ avg  {avg_t:.3f}s   {avg_eval:,.0f} Evals/s")
 
         if results:

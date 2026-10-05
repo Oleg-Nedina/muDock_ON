@@ -6,3 +6,7 @@ build*/
 *.a
 .codex
 docs/
+data/big_1/
+data/mid_1/
+data/small_1/
+data/cpu_500lig.adtmol2

@@ -8,6 +8,48 @@ muDock is a compact, Autodock-style docking engine that uses a genetic algorithm
 
 The pipeline is intentionally split into clean stages (input parsing, scoring, search, and output), so individual pieces can be swapped or extended. That structure makes it practical to prototype new scoring functions, docking algorithms, or search strategies without rewriting the rest of the system.
 
+## Alpaka Heterogeneous Porting & Fork Contributions
+
+This fork extends muDock by introducing a native, heterogeneous backend powered by the [Alpaka (>= 1.2.0)](https://github.com/alpaka-group/alpaka) performance portability library. It enables single-source execution across **NVIDIA CUDA GPUs**, **CPU Serial**, and **CPU Multi-Core (OpenMP)**, matching native CUDA performance without hardware-specific vendor lock-in.
+
+### Key Additions & Structure
+
+- **Alpaka Header Abstractions ([`mudock/include/mudock/alpaka_implementation/`](mudock/include/mudock/alpaka_implementation/))**:
+  - [`adt_score_alpaka.hpp`](mudock/include/mudock/alpaka_implementation/adt_score_alpaka.hpp): Energy evaluation kernel (`calc_energy`), optimized with `alpaka::math::` FP32 intrinsics, constant memory (`ALPAKA_STATIC_ACC_MEM_CONSTANT`), and warp-level reduction primitives (`alpaka::warp::shfl_down`).
+  - [`genetic_alpaka.hpp`](mudock/include/mudock/alpaka_implementation/genetic_alpaka.hpp) & [`mutate_alpaka.hpp`](mudock/include/mudock/alpaka_implementation/mutate_alpaka.hpp): Evolutionary search routines, population initialization, generation iteration, and coordinate mutation.
+  - [`geom_transform_alpaka.hpp`](mudock/include/mudock/alpaka_implementation/geom_transform_alpaka.hpp): Geometric coordinate transformations.
+  - [`alpaka_random.hpp`](mudock/include/mudock/alpaka_implementation/alpaka_random.hpp): Adaptive pseudo-random number generator (`alpaka::rand::Philox4x32x10` on GPU, Mersenne Twister on CPU).
+  - [`queue_alpaka.hpp`](mudock/include/mudock/alpaka_implementation/queue_alpaka.hpp) & [`buffer_alpaka.hpp`](mudock/include/mudock/alpaka_implementation/buffer_alpaka.hpp): Asynchronous execution streams and device memory buffers.
+- **Kernel Implementations ([`mudock/src/alpaka_implementation/`](mudock/src/alpaka_implementation/))**:
+  - Implements the host execution wrappers and kernel functors corresponding to the Alpaka headers (`adt_score_alpaka.cpp`, `genetic_alpaka.cpp`, `geom_transform_alpaka.cpp`, `alpaka_random.cpp`, `queue_alpaka.cpp`).
+- **Benchmarking & Profiling Ecosystem ([`scripts/`](scripts/))**:
+  - Profiling scripts for end-to-end macro throughput (`profiler_macro_global.py`, `profiler_macro_cpu.py`).
+  - Micro-architectural analysis using NVIDIA Nsight Systems and Nsight Compute (`profiler_micro_adt.py`, `profiler_micro_genetic.py`, `profiler_ncu.py`).
+  - System host metrics monitors (`profiler_host_metrics.py`, `profiler_ptxas.py`).
+  - IEEE-style visualization and chart generators (`plotter_*.py`).
+
+### Building and Running Alpaka
+
+Enable Alpaka at configure time:
+
+```bash
+cmake -S . -B build-alpaka \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DMUDOCK_ENABLE_ALPAKA=ON \
+  -DMUDOCK_ALPAKA_BACKEND=cuda \
+  -DMUDOCK_GPU_ARCHITECTURES=nvidia:sm_80
+cmake --build build-alpaka -j $(nproc)
+```
+
+Run using the `--use` execution flag:
+
+```bash
+./build-alpaka/application/muDock \
+  -p data/1fkb/1fkb_pocket.maps.fld \
+  -l data/1fkb/1fkb_ligand.adtmol2 \
+  --use ALPAKA:GPU:0
+```
+
 ## Repository layout
 
 - `application` — CLI entry point and executable sources
@@ -21,6 +63,7 @@ The pipeline is intentionally split into clean stages (input parsing, scoring, s
 ## Dependencies
 
 Required:
+
 - CMake 3.25+
 - A C++20-capable compiler (GCC/Clang/IntelLLVM)
 - Boost (components: `program_options`, `graph`, `context`)
@@ -28,9 +71,11 @@ Required:
 - OpenBabel3
 
 Required when using the bundled CMake presets:
+
 - Ninja
 
 Optional (enabled via build flags):
+
 - MPI
 - OpenMP (CPU parallelism)
 - CUDA Toolkit (with `curand`) for CUDA backend
@@ -136,6 +181,7 @@ Converter:
 ```
 
 Supported formats (by file extension):
+
 - `mol2`
 - `pdbqt`
 - `pdb`
@@ -221,4 +267,4 @@ ctest --preset dev-cpu-debug
 
 ## References
 
-- Gianmarco Accordi, Jens Domke, Theresa Pollinger, Davide Gadioli, Gianluca Palermo. "Towards High-Performance and Portable Molecular Docking on CPUs Through Vectorization." IEEE Cluster 2025. DOI: https://doi.org/10.1109/CLUSTER59342.2025.11186493
+- Gianmarco Accordi, Jens Domke, Theresa Pollinger, Davide Gadioli, Gianluca Palermo. "Towards High-Performance and Portable Molecular Docking on CPUs Through Vectorization." IEEE Cluster 2025. DOI: <https://doi.org/10.1109/CLUSTER59342.2025.11186493>

@@ -87,11 +87,16 @@ def run_nsys(name: str, bin_path: str, use_flag: str) -> pd.DataFrame | None:
         "--use",         use_flag,
         "--population",  str(POPULATION),
         "--generations", str(GENERATIONS),
+        "--search",      "genetic",
+        "--seed",        "42",
         "--observer",    "1",
     ]
     try:
         subprocess.run(cmd_profile, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, check=True)
+                       stderr=subprocess.DEVNULL, check=True, timeout=1200)
+    except subprocess.TimeoutExpired:
+        warn(f"nsys profile timed out (>1200s) for {name}")
+        return None
     except subprocess.CalledProcessError as e:
         warn(f"nsys profile failed for {name}: {e}")
         return None

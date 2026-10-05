@@ -15,24 +15,32 @@ from pathlib import Path
 import sys
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-DATASETS = ["single"]
+DATASETS = ["single", "small_multi"]
 
 # ─── PLOT STYLE ──────────────────────────────────────────────────────────────
 sns.set_theme(style="ticks", context="paper")
 plt.rcParams.update({
-    "font.family":       "DejaVu Sans",
-    "font.size":         11,
-    "axes.labelsize":    13,
-    "axes.titlesize":    13,
-    "axes.titleweight":  "bold",
-    "axes.grid":         True,
-    "grid.alpha":        0.3,
-    "grid.linestyle":    "--",
-    "legend.fontsize":   10,
-    "figure.titlesize":  14,
-    "figure.dpi":        150,
-    "savefig.dpi":       300,
-    "savefig.bbox":      "tight",
+    "font.family":          "DejaVu Sans",
+    "font.size":            10,
+    "axes.labelsize":       12,
+    "axes.titlesize":       12,
+    "axes.titleweight":     "bold",
+    "axes.linewidth":       0.8,
+    "axes.grid":            True,
+    "grid.alpha":           0.25,
+    "grid.linestyle":       ":",
+    "grid.linewidth":       0.6,
+    "legend.fontsize":      9,
+    "legend.framealpha":    0.95,
+    "legend.edgecolor":     "#cccccc",
+    "figure.titlesize":     13,
+    "figure.dpi":           150,
+    "savefig.dpi":          300,
+    "savefig.bbox":         "tight",
+    "xtick.direction":      "in",
+    "ytick.direction":      "in",
+    "xtick.minor.visible":  True,
+    "ytick.minor.visible":  True,
 })
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -62,11 +70,12 @@ def plot_rapid(ds_name: str, df: pd.DataFrame) -> str:
     stats = (df.groupby("Backend")["Throughput (Evals/s)"]
              .agg(Mean="mean", Std="std", Min="min", Max="max")
              .reset_index())
+    stats["CV%"] = stats["Std"] / stats["Mean"] * 100
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 6))
     fig.suptitle(
         f"Rapid Benchmark — {ds_name}  ·  {cfg_label}",
-        fontsize=14, fontweight="bold", y=1.02,
+        fontsize=13, fontweight="bold", y=1.02,
     )
 
     # ── LEFT: grouped bar chart with error bars ───────────────────────────────
@@ -82,19 +91,20 @@ def plot_rapid(ds_name: str, df: pd.DataFrame) -> str:
         error_kw={"linewidth": 1.8, "capthick": 1.8, "ecolor": "#333"},
     )
 
-    # Value labels
+    # Value labels + CV%
     for bar, b in zip(bars, backends):
         mean = stats.loc[stats["Backend"] == b, "Mean"].values[0]
         std  = stats.loc[stats["Backend"] == b, "Std"].values[0]
+        cv   = stats.loc[stats["Backend"] == b, "CV%"].values[0]
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             mean + std + stats["Mean"].max() * 0.012,
-            f"{mean:,.0f}", ha="center", va="bottom",
-            fontsize=11, fontweight="bold",
+            f"{mean:,.0f}\n(CV {cv:.1f}%)", ha="center", va="bottom",
+            fontsize=9, fontweight="bold",
         )
 
     ax.set_xticks(x)
-    ax.set_xticklabels(backends, fontsize=11)
+    ax.set_xticklabels(backends, fontsize=10, rotation=15, ha="right")
     ax.set_ylabel("Throughput (Evals/s)")
     ax.set_title("Mean Throughput ± Std Dev")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:,.0f}"))

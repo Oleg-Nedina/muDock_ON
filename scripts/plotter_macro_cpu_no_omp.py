@@ -1,9 +1,8 @@
 """
-plotter_macro_cpu.py
-IEEE paper-quality plots separating Serial and OpenMP CPU backends:
+plotter_macro_cpu_no_omp.py
+Plots separating Serial CPU backends:
 1. Serial Family: CPP Serial vs Alpaka Serial (1W, 8W)
-2. OpenMP Family: CPP OMP vs Alpaka OMP (1W, 8W, 32W)
-Produces separate, clear plots for Throughput, Latency, and Speedup with clean layout.
+Produces separate, clear plots for Throughput and Latency with clean layout.
 """
 
 import pandas as pd
@@ -20,15 +19,6 @@ SERIAL_BACKENDS = [
     "CPP Serial",
     "Alpaka Serial (1 Worker)",
     "Alpaka Serial (8 Workers)",
-]
-
-OMP_BACKENDS = [
-    "CPP OMP (1 Worker)",
-    "CPP OMP (8 Workers)",
-    "CPP OMP (32 Workers)",
-    "Alpaka OMP (1 Worker)",
-    "Alpaka OMP (8 Workers)",
-    "Alpaka OMP (32 Workers)",
 ]
 
 # ─── PLOT STYLE ──────────────────────────────────────────────────────────────
@@ -89,6 +79,9 @@ def plot_serial_group(df: pd.DataFrame, ds_name: str) -> None:
     df_s["Config"] = df_s.apply(_config_label, axis=1)
     cfg_order = list(dict.fromkeys(df_s["Config"]))
 
+    out_dir = Path("scripts/plot_no_omp")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     # 1. Throughput Plot (Serial)
     fig, ax = plt.subplots(figsize=(6.5, 4.5))
     sns.barplot(data=df_s, x="Config", y="Throughput (Evals/s)", hue="Backend",
@@ -104,7 +97,7 @@ def plot_serial_group(df: pd.DataFrame, ds_name: str) -> None:
     sns.despine(ax=ax)
 
     plt.tight_layout()
-    out_tp = f"cpu_serial_throughput_{ds_name}.pdf"
+    out_tp = out_dir / f"cpu_serial_throughput_{ds_name}.pdf"
     fig.savefig(out_tp, bbox_inches="tight")
     plt.close(fig)
     ok(out_tp)
@@ -124,103 +117,19 @@ def plot_serial_group(df: pd.DataFrame, ds_name: str) -> None:
     sns.despine(ax=ax)
 
     plt.tight_layout()
-    out_lat = f"cpu_serial_latency_{ds_name}.pdf"
+    out_lat = out_dir / f"cpu_serial_latency_{ds_name}.pdf"
     fig.savefig(out_lat, bbox_inches="tight")
     plt.close(fig)
     ok(out_lat)
-
-
-# ─── OPENMP PLOTS ────────────────────────────────────────────────────────────
-def plot_omp_group(df: pd.DataFrame, ds_name: str) -> None:
-    df_omp = df[df["Backend"].isin(OMP_BACKENDS)].copy()
-    if df_omp.empty:
-        return
-
-    present = [b for b in OMP_BACKENDS if b in df_omp["Backend"].unique()]
-    palette = sns.color_palette("deep", n_colors=len(present))
-
-    df_omp["Config"] = df_omp.apply(_config_label, axis=1)
-    cfg_order = list(dict.fromkeys(df_omp["Config"]))
-
-    # 1. Throughput Plot (OpenMP)
-    fig, ax = plt.subplots(figsize=(7.0, 4.8))
-    sns.barplot(data=df_omp, x="Config", y="Throughput (Evals/s)", hue="Backend",
-                ax=ax, order=cfg_order, hue_order=present, errorbar="sd",
-                capsize=0.04, err_kws={"linewidth": 0.8}, edgecolor="black", linewidth=0.7,
-                palette=palette)
-    ax.set_title(f"CPU OpenMP Scaling — Throughput ({ds_name.upper()} Dataset)", pad=12)
-    ax.set_xlabel("Workload Configuration", labelpad=8)
-    ax.set_ylabel("Throughput (Evaluations / second)", labelpad=8)
-    _annotate_bars(ax, fmt="{:,.1f}", log=False)
-    ax.set_ylim(top=ax.get_ylim()[1] * 1.25)
-    ax.legend(title="OpenMP Configuration", loc="upper center", bbox_to_anchor=(0.5, -0.25), ncol=3, frameon=False)
-    sns.despine(ax=ax)
-
-    plt.tight_layout()
-    out_tp = f"cpu_omp_throughput_{ds_name}.pdf"
-    fig.savefig(out_tp, bbox_inches="tight")
-    plt.close(fig)
-    ok(out_tp)
-
-    # 2. Latency Plot (OpenMP)
-    fig, ax = plt.subplots(figsize=(7.0, 4.8))
-    sns.barplot(data=df_omp, x="Config", y="Time (s)", hue="Backend",
-                ax=ax, order=cfg_order, hue_order=present, errorbar="sd",
-                capsize=0.04, err_kws={"linewidth": 0.8}, edgecolor="black", linewidth=0.7,
-                palette=palette)
-    ax.set_title(f"CPU OpenMP Scaling — Wall-Clock Latency ({ds_name.upper()} Dataset)", pad=12)
-    ax.set_xlabel("Workload Configuration", labelpad=8)
-    ax.set_ylabel("Total Latency (seconds)", labelpad=8)
-    _annotate_bars(ax, fmt="{:.2f}s")
-    ax.set_ylim(0, ax.get_ylim()[1] * 1.25)
-    ax.legend(title="OpenMP Configuration", loc="upper center", bbox_to_anchor=(0.5, -0.25), ncol=3, frameon=False)
-    sns.despine(ax=ax)
-
-    plt.tight_layout()
-    out_lat = f"cpu_omp_latency_{ds_name}.pdf"
-    fig.savefig(out_lat, bbox_inches="tight")
-    plt.close(fig)
-    ok(out_lat)
-
-    # 3. Speedup Plot vs CPP Serial Baseline
-    if "CPP Serial" in df["Backend"].values:
-        baseline = (df[df["Backend"] == "CPP Serial"]
-                    .groupby("Total Evaluations")["Throughput (Evals/s)"]
-                    .mean().reset_index()
-                    .rename(columns={"Throughput (Evals/s)": "Base_Throughput"}))
-        
-        speedup_df = df_omp.merge(baseline, on="Total Evaluations")
-        speedup_df["Speedup"] = speedup_df["Throughput (Evals/s)"] / speedup_df["Base_Throughput"]
-
-        fig, ax = plt.subplots(figsize=(7.0, 4.8))
-        sns.barplot(data=speedup_df, x="Config", y="Speedup", hue="Backend",
-                    ax=ax, order=cfg_order, hue_order=present, errorbar="sd",
-                    capsize=0.04, err_kws={"linewidth": 0.8}, edgecolor="black", linewidth=0.7,
-                    palette=palette)
-        ax.axhline(1.0, color="crimson", linewidth=1.2, linestyle="--", label="Baseline Native CPP Serial (1.0×)")
-        ax.set_title(f"OpenMP Multi-Core Speedup vs CPP Serial Baseline ({ds_name.upper()} Dataset)", pad=12)
-        ax.set_xlabel("Workload Configuration", labelpad=8)
-        ax.set_ylabel("Speedup Factor (×)", labelpad=8)
-        _annotate_bars(ax, fmt="{:.2f}×")
-        ax.set_ylim(0, ax.get_ylim()[1] * 1.25)
-        ax.legend(title="OpenMP Configuration", loc="upper center", bbox_to_anchor=(0.5, -0.25), ncol=3, frameon=False)
-        sns.despine(ax=ax)
-
-        plt.tight_layout()
-        out_spd = f"cpu_omp_speedup_{ds_name}.pdf"
-        fig.savefig(out_spd, bbox_inches="tight")
-        plt.close(fig)
-        ok(out_spd)
-
 
 # ─── MAIN ────────────────────────────────────────────────────────────────────
 def main():
     print("\n╔══════════════════════════════════════════════════════════════╗")
-    print("║  CPU PLOTTER  —  Separated Serial vs OpenMP Analysis         ║")
+    print("║  CPU PLOTTER  —  Serial Analysis                             ║")
     print("╚══════════════════════════════════════════════════════════════╝")
 
     for ds_name in DATASETS:
-        csv_file = f"macro_results_cpu_{ds_name}.csv"
+        csv_file = f"scripts/macro_results_cpu_{ds_name}.csv"
         if not Path(csv_file).exists():
             continue
 
@@ -234,8 +143,6 @@ def main():
         print(f"\n▶ Dataset: {ds_name.upper()}")
         print("  --- 1. Serial Analysis (CPP Serial vs Alpaka Serial) ---")
         plot_serial_group(df, ds_name)
-        print("  --- 2. OpenMP Scaling Analysis (CPP OMP vs Alpaka OMP) ---")
-        plot_omp_group(df, ds_name)
 
 if __name__ == "__main__":
     main()

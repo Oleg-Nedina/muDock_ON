@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import os
 
-RESULTS_DIR = "/work/onedina/muDock_ON/scripts"
+RESULTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def plot_cpu_results(csv_filename, output_filename, title, backend_filter=None, y_metric="Throughput (Evals/s)", y_label="Throughput (Evals/s)", format_int=True):
     csv_path = os.path.join(RESULTS_DIR, csv_filename)
@@ -64,7 +64,14 @@ def plot_cpu_results(csv_filename, output_filename, title, backend_filter=None, 
                                  fontsize=8, color='black', xytext=(0, 2), 
                                  textcoords='offset points', rotation=45)
 
-    plt.suptitle(title, fontsize=16, y=1.05)
+    # Unified external legend
+    handles, labels = axes[0].get_legend_handles_labels()
+    for ax in axes:
+        if ax.get_legend() is not None:
+            ax.get_legend().remove()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.04), ncol=len(labels), frameon=True, fontsize=11)
+
+    plt.suptitle(title, fontsize=16, y=1.12)
     plt.tight_layout()
     
     out_path = os.path.join(RESULTS_DIR, output_filename)
@@ -77,43 +84,48 @@ if __name__ == "__main__":
     
     serial_backends = ['CPP Serial', 'Alpaka Serial (Unroll)', 'Alpaka Serial (No Unroll)']
     omp_backends = ['CPP OMP', 'Alpaka OMP (Unroll)', 'Alpaka OMP (No Unroll)']
+    datasets = ["single", "small_multi"]
     
-    # --- SERIAL ---
-    plot_cpu_results(
-        "macro_results_cpu_single.csv", 
-        "macro_plot_cpu_serial_throughput.pdf", 
-        "CPU Serial Throughput (Dataset: Single)",
-        backend_filter=serial_backends,
-        y_metric="Throughput (Evals/s)",
-        y_label="Throughput (Evals/s)",
-        format_int=True
-    )
-    plot_cpu_results(
-        "macro_results_cpu_single.csv", 
-        "macro_plot_cpu_serial_latency.pdf", 
-        "CPU Serial Latency (Dataset: Single)",
-        backend_filter=serial_backends,
-        y_metric="Time (s)",
-        y_label="Time (Seconds)",
-        format_int=False
-    )
-    
-    # --- OMP ---
-    plot_cpu_results(
-        "macro_results_cpu_single.csv", 
-        "macro_plot_cpu_omp_throughput.pdf", 
-        "CPU OMP Throughput (Dataset: Single)",
-        backend_filter=omp_backends,
-        y_metric="Throughput (Evals/s)",
-        y_label="Throughput (Evals/s)",
-        format_int=True
-    )
-    plot_cpu_results(
-        "macro_results_cpu_single.csv", 
-        "macro_plot_cpu_omp_latency.pdf", 
-        "CPU OMP Latency (Dataset: Single)",
-        backend_filter=omp_backends,
-        y_metric="Time (s)",
-        y_label="Time (Seconds)",
-        format_int=False
-    )
+    for ds in datasets:
+        ds_title = ds.replace("_", " ").title()
+        csv_file = f"macro_results_cpu_{ds}.csv"
+        
+        # --- SERIAL ---
+        plot_cpu_results(
+            csv_file, 
+            f"macro_plot_cpu_serial_throughput_{ds}.pdf", 
+            f"CPU Serial Throughput (Dataset: {ds_title})",
+            backend_filter=serial_backends,
+            y_metric="Throughput (Evals/s)",
+            y_label="Throughput (Evals/s)",
+            format_int=True
+        )
+        plot_cpu_results(
+            csv_file, 
+            f"macro_plot_cpu_serial_latency_{ds}.pdf", 
+            f"CPU Serial Latency (Dataset: {ds_title})",
+            backend_filter=serial_backends,
+            y_metric="Time (s)",
+            y_label="Time (Seconds)",
+            format_int=False
+        )
+        
+        # --- OMP ---
+        plot_cpu_results(
+            csv_file, 
+            f"macro_plot_cpu_omp_throughput_{ds}.pdf", 
+            f"CPU OMP Throughput (Dataset: {ds_title})",
+            backend_filter=omp_backends,
+            y_metric="Throughput (Evals/s)",
+            y_label="Throughput (Evals/s)",
+            format_int=True
+        )
+        plot_cpu_results(
+            csv_file, 
+            f"macro_plot_cpu_omp_latency_{ds}.pdf", 
+            f"CPU OMP Latency (Dataset: {ds_title})",
+            backend_filter=omp_backends,
+            y_metric="Time (s)",
+            y_label="Time (Seconds)",
+            format_int=False
+        )
