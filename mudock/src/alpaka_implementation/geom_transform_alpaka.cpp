@@ -1,3 +1,11 @@
+/**
+ * @file geom_transform_alpaka.cpp
+ * @brief Implementation of the geometric transformation kernel for Alpaka.
+ * @details Implements the `apply_alpaka` kernel and batch multiple calculation
+ *          for evaluating ligand conformations by applying genotype translation,
+ *          quaternion/Euler rotations, and flexible fragment torsions.
+ */
+
 #include <alpaka/alpaka.hpp>
 #include <cmath>
 #include <mudock/alpaka_implementation/geom_transform_alpaka.hpp>
@@ -10,8 +18,38 @@
 
 namespace mudock {
   namespace {
+    /**
+     * @struct apply_alpaka
+     * @brief Device kernel performing geometric conformation transformations on molecular candidates.
+     * @details For each candidate ligand chromosome, reads atomic baseline coordinates, applies
+     *          global 3D translation and centroid rotation, followed by internal rotatable bond
+     *          torsions on molecular sub-fragments according to bitmasks.
+     *
+     * @tparam MAX_ATOMS Static upper bound on atom count used for unrolling inner loops.
+     */
     template<int MAX_ATOMS>
     struct apply_alpaka {
+      /**
+       * @brief Kernel body executing translation, rotation, and fragment torsion transformations.
+       * @tparam TAcc Alpaka accelerator type.
+       * @param[in] acc Reference to the execution context.
+       * @param chromosome_number Number of candidate chromosomes per ligand pose.
+       * @param atom_stride Stride in elements separating coordinate planes across molecules.
+       * @param[in] original_x Baseline X atomic coordinates.
+       * @param[in] original_y Baseline Y atomic coordinates.
+       * @param[in] original_z Baseline Z atomic coordinates.
+       * @param[out] scratch_x Scratchpad destination buffer for transformed X coordinates.
+       * @param[out] scratch_y Scratchpad destination buffer for transformed Y coordinates.
+       * @param[out] scratch_z Scratchpad destination buffer for transformed Z coordinates.
+       * @param[in] chromosomes Candidate chromosomes containing rotation and torsion angles.
+       * @param[in] fragments Array of fragment membership bitmasks.
+       * @param[in] ligand_fragments_start Array of starting offsets in fragments array per ligand.
+       * @param[in] fragments_start_index Indices of origin atoms for fragment rotation axes.
+       * @param[in] fragments_stop_index Indices of terminal atoms for fragment rotation axes.
+       * @param[in] frag_indices_start Array of offsets into fragment axis index arrays per ligand.
+       * @param[in] num_rotamers_b Number of rotatable bonds per ligand.
+       * @param[in] num_atoms_b Number of atoms per ligand.
+       */
       template<typename TAcc>
       ALPAKA_FN_ACC void operator()(TAcc const& acc,
                                     const int chromosome_number,
@@ -101,6 +139,11 @@ namespace mudock {
     };
   } // namespace
 
+  /**
+   * @brief Dispatches the geometric transformation kernel for the current molecular batch.
+   * @details Switches at compile-time between static atom count clusters (`MAX_ATOMS`) to
+   *          instantiate the optimal unrolled template instance of `apply_alpaka`.
+   */
   template<>
   void geom_kernel<queue_alpaka>::operator()() {
     constexpr_switch_bucket<0, reorder_buffer<static_molecule>::get_num_atom_clusters(), 1>(
@@ -128,6 +171,14 @@ namespace mudock {
         reorder_buffer<static_molecule>::atoms_clusters.data());
   }
 
+  /**
+   * @brief Calculates hardware-aware batch multiple alignment for geometric transformation.
+   * @details Inspects the accelerator device's multiprocessor count (`num_sms`) and heuristics
+   *          based on atom count to determine optimal block occupancy per streaming multiprocessor.
+   * @param atoms Target atom cluster size.
+   * @param q_b Pointer to the Alpaka execution queue.
+   * @return Normalized batch_multiple structure specifying scheduling constraints.
+   */
   template<>
   batch_multiple get_geom_transform_batch_multiple<queue_alpaka>(const int atoms,
                                                                  std::shared_ptr<queue_alpaka> q_b) {

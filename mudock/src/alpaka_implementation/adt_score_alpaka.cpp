@@ -1,3 +1,11 @@
+/**
+ * @file adt_score_alpaka.cpp
+ * @brief Implementation of the AutoDock (ADT) molecular scoring kernel for Alpaka.
+ * @details Implements trilinear interpolation on 3D grid maps, non-bonded inter-atomic
+ *          energy evaluation (electrostatics, desolvation, van der Waals/hydrogen bonding),
+ *          and constant memory staging for receptor grid bounds.
+ */
+
 #include <alpaka/alpaka.hpp>
 #include <cmath>
 #include <mudock/alpaka_implementation/adt_score_alpaka.hpp>
@@ -11,15 +19,32 @@
 #include <mudock/type_alias.hpp>
 #include <mudock/utils.hpp>
 
+/**
+ * @def FLATTENED_3D
+ * @brief Calculates linear 1D memory offset for a 3D index coordinate (x, y, z).
+ */
 #define FLATTENED_3D(x, y, z, index_x, index_xy) (index_xy * (z) + (y) * index_x + (x))
 
 namespace mudock {
 
+  /// @brief Constant memory storage for minimum corner of the receptor grid bounding box.
   ALPAKA_STATIC_ACC_MEM_CONSTANT alpaka::DevGlobal<TAcc, fp_type[3]> map_min_const;
+
+  /// @brief Constant memory storage for maximum corner of the receptor grid bounding box.
   ALPAKA_STATIC_ACC_MEM_CONSTANT alpaka::DevGlobal<TAcc, fp_type[3]> map_max_const;
+
+  /// @brief Constant memory storage for center coordinates of the receptor grid bounding box.
   ALPAKA_STATIC_ACC_MEM_CONSTANT alpaka::DevGlobal<TAcc, fp_type[3]> map_center_const;
 
   namespace {
+    /**
+     * @brief Performs 3D trilinear interpolation on an affinity grid map.
+     * @param[in] map Base pointer to the 8-corner grid cube in memory.
+     * @param[in] coeffs Interpolation polynomial weighting coefficients for the 8 corners.
+     * @param map_index_x Stride along the X axis.
+     * @param map_index_xy Stride along the XY plane.
+     * @return Interpolated floating-point energy potential value.
+     */
     ALPAKA_FN_ACC ALPAKA_FN_INLINE fp_type trilinear_interpolation_alpaka(const fp_type* __restrict__ map,
                                                                           const fp_type* __restrict__ coeffs,
                                                                           const int map_index_x,
@@ -38,8 +63,45 @@ namespace mudock {
       return value;
     }
 
+    /**
+     * @struct calc_energy
+     * @brief Core molecular scoring kernel evaluating total binding free energy.
+     * @details Evaluates intermolecular interactions via trilinear interpolation on receptor
+     *          grid maps (electrostatics, van der Waals, desolvation) and intramolecular
+     *          interactions across rotatable bonds (Mehler-Solmajer dielectric screening,
+     *          Lennard-Jones potentials, and torsional entropy loss).
+     *
+     * @tparam MAX_ATOMS Upper bound on the number of atoms for unrolled loop optimizations.
+     */
     template<int MAX_ATOMS>
     struct calc_energy {
+      /**
+       * @brief Kernel body computing molecular binding score for candidate poses.
+       * @tparam TAcc Alpaka accelerator type.
+       * @param[in] acc Reference to the execution context.
+       * @param atom_stride Stride in elements separating coordinate planes across molecules.
+       * @param scores_per_ligand Number of candidate poses evaluated per ligand.
+       * @param[in] scratch_x Array of candidate X atomic coordinates.
+       * @param[in] scratch_y Array of candidate Y atomic coordinates.
+       * @param[in] scratch_z Array of candidate Z atomic coordinates.
+       * @param[in] vols_b Atomic volume parameters for desolvation.
+       * @param[in] solpars_b Atomic solvation parameters.
+       * @param[in] charges_b Partial atomic charges.
+       * @param[in] num_atoms_b Atom counts per ligand.
+       * @param[in] num_rotamers_b Rotatable bond counts per ligand.
+       * @param[in] num_nonbonds_b Offsets in non-bonded interaction arrays.
+       * @param[in] nonbond_a1_b First atom index in non-bonded pairs.
+       * @param[in] nonbond_a2_b Second atom index in non-bonded pairs.
+       * @param[in] nonbond_cA_b Attractive coefficient A for non-bonded pairs.
+       * @param[in] nonbond_cB_b Repulsive coefficient B for non-bonded pairs.
+       * @param[in] nonbond_xB_b Power exponent parameter for non-bonded pairs.
+       * @param map_index_x Grid dimension stride along X.
+       * @param map_index_xy Grid dimension stride along XY plane.
+       * @param map_index_xyz Total volume elements per grid map.
+       * @param[in] grid_maps Contiguous buffer containing receptor affinity maps.
+       * @param[in] map_offsets_b Offsets to type-specific affinity maps per atom.
+       * @param[out] scores_b Output buffer storing total evaluated binding energy scores.
+       */
       template<typename TAcc>
       ALPAKA_FN_ACC void operator()(TAcc const& acc,
                                     const int atom_stride,
@@ -247,6 +309,12 @@ namespace mudock {
     };
   } // namespace
 
+  /**
+   * @brief Dispatches the ADT scoring kernel for the current ligand batch.
+   * @details Copies receptor bounding box parameters into device constant memory,
+   *          selects the unrolled atom cluster template instantiation, and launches
+   *          `calc_energy` on the accelerator queue.
+   */
   template<>
   void adt_score_kernel<queue_alpaka>::operator()() {
     const auto extent = alpaka::Vec<alpaka_backend::dim, alpaka_backend::idx>{3u};
@@ -289,6 +357,13 @@ namespace mudock {
         reorder_buffer<static_molecule>::atoms_clusters.data());
   }
 
+  /**
+   * @brief Determines hardware occupancy batch multiples for the ADT scoring kernel.
+   * @details Balances SM occupancy and register pressure on GPUs depending on the atom count bucket.
+   * @param atoms Target atom cluster size.
+   * @param q_b Pointer to the Alpaka execution queue.
+   * @return Normalized batch_multiple struct specifying scheduling parameters.
+   */
   template<>
   batch_multiple get_adt_score_batch_multiple<queue_alpaka>(const int atoms,
                                                             std::shared_ptr<queue_alpaka> q_b) {

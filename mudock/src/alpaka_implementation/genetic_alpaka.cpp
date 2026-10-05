@@ -1,3 +1,10 @@
+/**
+ * @file genetic_alpaka.cpp
+ * @brief Implementation of the Genetic Algorithm (GA) kernels for Alpaka.
+ * @details Implements the initialization (`initialize_alpaka`), reproduction/mutation (`iterate_alpaka`),
+ *          and reduction (`finalize_alpaka`) kernels for evolving ligand conformations on accelerators.
+ */
+
 #include <alpaka/alpaka.hpp>
 #include <cstdint>
 #include <limits>
@@ -9,19 +16,29 @@
 #include <mudock/compute/devices_memory.hpp>
 #include <mudock/alpaka_implementation/alpaka_random.hpp>
 
-
-
 namespace mudock {
+  /// @brief Thread-local cache for device-allocated random generator objects.
   thread_local device_memory<alpaka_random_object> alpaka_random_memory;
 
   namespace {
-    static constexpr fp_type coordinate_step{static_cast<fp_type>(0.2)};
-    static constexpr fp_type angle_step{4};
+    static constexpr fp_type coordinate_step{static_cast<fp_type>(0.2)}; ///< Translation mutation scaling factor.
+    static constexpr fp_type angle_step{4};                               ///< Rotation and torsion angle mutation scaling factor.
 
+    /**
+     * @brief Extracts a raw 32-bit random word from the generator state.
+     * @param state Active PRNG engine state.
+     * @return 32-bit unsigned integer.
+     */
     ALPAKA_FN_ACC ALPAKA_FN_INLINE std::uint32_t next_random(alpaka_rand_state& state) {
       return static_cast<std::uint32_t>(state());
     }
 
+    /**
+     * @brief Generates a uniform floating-point value in [0, 1).
+     * @details In debug mode (`is_debug()`), returns fixed constant `0.4f` for deterministic validation.
+     * @param state Active PRNG engine state.
+     * @return Uniform floating-point scalar.
+     */
     ALPAKA_FN_ACC ALPAKA_FN_INLINE fp_type random_unit(alpaka_rand_state& state) {
       if constexpr (is_debug()) {
         return fp_type{0.4f};
@@ -31,32 +48,53 @@ namespace mudock {
       }
     }
 
+    /**
+     * @brief Generates a random value uniformly distributed between min and max.
+     * @tparam T Numeric output type.
+     * @param state Active PRNG engine state.
+     * @param min Inclusive minimum bound.
+     * @param max Inclusive maximum bound.
+     * @return Uniformly distributed value of type T.
+     */
     template<typename T>
     ALPAKA_FN_ACC ALPAKA_FN_INLINE T random_gen_alpaka(alpaka_rand_state& state, const T min, const T max) {
       return static_cast<T>((random_unit(state) * static_cast<fp_type>(max - min)) +
                             static_cast<fp_type>(min));
     }
 
+    /// @brief Generates a random chromosome index for tournament participant selection.
     ALPAKA_FN_ACC ALPAKA_FN_INLINE int get_selection_distribution(alpaka_rand_state& state, const int population_number) {
       return random_gen_alpaka<int>(state, 0, population_number - 1);
     }
 
+    /// @brief Generates initial conformation orientation perturbation in degrees [-45, 45].
     ALPAKA_FN_ACC ALPAKA_FN_INLINE fp_type get_init_change_distribution(alpaka_rand_state& state) {
       return random_gen_alpaka<fp_type>(state, -45, 45);
     }
 
+    /// @brief Generates mutation perturbation step in [-10, 10].
     ALPAKA_FN_ACC ALPAKA_FN_INLINE fp_type get_mutation_change_distribution(alpaka_rand_state& state) {
       return random_gen_alpaka<fp_type>(state, -10, 10);
     }
 
+    /// @brief Generates probability check value in [0, 1].
     ALPAKA_FN_ACC ALPAKA_FN_INLINE fp_type get_mutation_coin_distribution(alpaka_rand_state& state) {
       return random_gen_alpaka<fp_type>(state, 0, 1);
     }
 
+    /// @brief Generates single-point crossover cut index across genes [0, 6 + num_rotamers].
     ALPAKA_FN_ACC ALPAKA_FN_INLINE int get_crossover_distribution(alpaka_rand_state& state, const int num_rotamers) {
       return random_gen_alpaka<int>(state, 0, 6 + num_rotamers);
     }
 
+    /**
+     * @brief Executes tournament selection to identify the fittest individual among candidates.
+     * @param state Active PRNG state.
+     * @param tournament_length Number of competing individuals in the tournament.
+     * @param chromosome_number Total size of the candidate population.
+     * @param[in] scores Energy score array for candidates.
+     * @return Population index of the winning candidate with lowest energy.
+     */
     ALPAKA_FN_ACC ALPAKA_FN_INLINE int tournament_selection_alpaka(alpaka_rand_state& state,
                                                   const int tournament_length,
                                                   const int chromosome_number,
@@ -71,7 +109,23 @@ namespace mudock {
       return best_individual;
     }
 
+    /**
+     * @struct initialize_alpaka
+     * @brief Device kernel generating initial random conformations for the population.
+     * @details Populates chromosome gene values (translation and rotations) with initial
+     *          random deviations and sets candidate scores to infinity.
+     */
     struct initialize_alpaka {
+      /**
+       * @brief Kernel body initializing chromosomes and scores.
+       * @tparam TAcc Alpaka accelerator type.
+       * @param[in] acc Reference to the execution context.
+       * @param chromosome_number Size of population per ligand.
+       * @param[in] ligand_num_rotamers Rotatable bond counts per ligand.
+       * @param[out] chromosomes Output array of generated chromosomes.
+       * @param[out] ligand_scores Output array of candidate scores initialized to infinity.
+       * @param[in,out] state Array of device PRNG states.
+       */
       template<typename TAcc>
       ALPAKA_FN_ACC void operator()(TAcc const& acc,
                                     const int chromosome_number,
@@ -112,7 +166,26 @@ namespace mudock {
       }
     };
 
+    /**
+     * @struct iterate_alpaka
+     * @brief Device kernel executing one generation of genetic search.
+     * @details Performs tournament selection of parent pairs, single-point crossover,
+     *          and stochastic coordinate/torsion mutation.
+     */
     struct iterate_alpaka {
+      /**
+       * @brief Kernel body executing genetic selection, crossover, and mutation.
+       * @tparam TAcc Alpaka accelerator type.
+       * @param[in] acc Reference to the execution context.
+       * @param tournament_length Size of tournament selection pool.
+       * @param mutation_prob Probability of mutating each individual gene.
+       * @param chromosome_number Size of population per ligand.
+       * @param[in] ligand_num_rotamers Rotatable bond counts per ligand.
+       * @param[in] chromosomes Current generation population.
+       * @param[out] next_chromosomes Offspring population buffer.
+       * @param[in] ligand_scores Fitness energy scores of current generation.
+       * @param[in,out] state Array of device PRNG states.
+       */
       template<typename TAcc>
       ALPAKA_FN_ACC void operator()(TAcc const& acc,
                                     const int tournament_length,
@@ -142,7 +215,7 @@ namespace mudock {
           chromosome& next_chromosome = *(l_next_chromosomes + chromosome_index);
 
           const int best_individual_1 =
-              tournament_selection_alpaka(l_state, tournament_length, chromosome_number, scores);
+               tournament_selection_alpaka(l_state, tournament_length, chromosome_number, scores);
           const int best_individual_2 =
               tournament_selection_alpaka(l_state, tournament_length, chromosome_number, scores);
 
@@ -173,7 +246,24 @@ namespace mudock {
       }
     };
 
+    /**
+     * @struct finalize_alpaka
+     * @brief Device kernel locating the best-scoring candidate chromosome per ligand.
+     * @details Employs parallel warp shuffle reduction (`alpaka::warp::shfl_down`) to
+     *          find the minimum energy individual within each block and writes the result.
+     */
     struct finalize_alpaka {
+      /**
+       * @brief Kernel body reducing candidate scores to find the minimum.
+       * @tparam TAcc Alpaka accelerator type.
+       * @param[in] acc Reference to the execution context.
+       * @param chromosome_number Population size per ligand.
+       * @param[in] ligand_num_rotamers Rotatable bond count per ligand.
+       * @param[in] ligand_scores Array of evaluated scores.
+       * @param[out] ligand_best_scores Array storing the lowest energy score per ligand.
+       * @param[in] chromosomes Candidate chromosome population array.
+       * @param[out] best_chromosomes Array storing the optimal winning chromosome per ligand.
+       */
       template<typename TAcc>
       ALPAKA_FN_ACC void operator()(TAcc const& acc,
                                     const int chromosome_number,
@@ -221,6 +311,10 @@ namespace mudock {
     };
   } // namespace
 
+  /**
+   * @brief Initializes population conformations on the Alpaka accelerator.
+   * @details Allocates and seeds RNG state memory, then launches `initialize_alpaka`.
+   */
   template<>
   void genetic_kernel<queue_alpaka>::initialize() {
     alpaka_random_memory.init(q);
@@ -234,6 +328,10 @@ namespace mudock {
                                         alpaka_random_memory.get_data()->dev_pointer());
   }
 
+  /**
+   * @brief Advances candidate conformations by one genetic generation on the accelerator.
+   * @details Launches `iterate_alpaka` to perform selection, crossover, and mutation in parallel.
+   */
   template<>
   void genetic_kernel<queue_alpaka>::operator()() {
     q->invoke_kernel<iterate_alpaka>(batch_ligands,
@@ -247,6 +345,10 @@ namespace mudock {
                                      alpaka_random_memory.get_data()->dev_pointer());
   }
 
+  /**
+   * @brief Selects the minimum energy candidate pose per ligand across the evaluated population.
+   * @details Launches `finalize_alpaka` utilizing warp shuffle reduction.
+   */
   template<>
   void genetic_kernel<queue_alpaka>::finalize() {
     q->invoke_kernel<finalize_alpaka>(batch_ligands,

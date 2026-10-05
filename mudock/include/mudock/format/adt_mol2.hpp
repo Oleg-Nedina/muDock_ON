@@ -149,49 +149,81 @@ namespace mudock {
                 tokens.push_back(std::move(token));
               }
 
-              // Fixed ADTMOL2 atom layout emitted by writer:
-              // atom_id atom_name x y z sybyl_type residue_id residue_name adt charge is_aromatic
-              if (tokens.size() != 11) {
+              if (tokens.size() == 11) {
+                const auto atom_id = std::stoi(tokens[0]);
+
+                if (atom_id != atom_index + 1 && atom_id != atom_index) {
+                  throw std::runtime_error("Invalid ADT-MOL2 atom record: unexpected atom id " +
+                                           std::to_string(atom_id) + ", expected " +
+                                           std::to_string(atom_index + 1));
+                }
+
+                const auto& atom_name    = tokens[1];
+                const auto x             = static_cast<fp_type>(std::stod(tokens[2]));
+                const auto y             = static_cast<fp_type>(std::stod(tokens[3]));
+                const auto z             = static_cast<fp_type>(std::stod(tokens[4]));
+                const auto& sybyl_type   = tokens[5];
+                const auto residue_id    = std::stoi(tokens[6]);
+                const auto& residue_name = tokens[7];
+                const auto& adt          = tokens[8];
+                const auto charge        = static_cast<fp_type>(std::stod(tokens[9]));
+                const bool is_aromatic   = std::stoi(tokens[10]) != 0;
+
+                molecule.x(atom_index) = x;
+                molecule.y(atom_index) = y;
+                molecule.z(atom_index) = z;
+
+                const auto parsed_sybyl_type       = parse_sybyl_atom_type(sybyl_type);
+                molecule.elements(atom_index)      = get_element(parsed_sybyl_type);
+                molecule.autodock_type(atom_index) = parse_autodock_type(adt);
+
+                molecule.residue_id(atom_index)        = residue_id;
+                molecule.residue_name(atom_index)      = residue_name;
+                molecule.atom_residue_type(atom_index) = parse_residue_type(residue_name);
+
+                molecule.atom_name(atom_index)  = atom_name;
+                molecule.sybyl_type(atom_index) = parsed_sybyl_type;
+
+                molecule.charge(atom_index)      = charge;
+                molecule.is_aromatic(atom_index) = is_aromatic;
+              } else if (tokens.size() == 8) {
+                // Legacy ADTMOL2 layout:
+                // atom_id element x y z adt charge is_aromatic
+                const auto atom_id = std::stoi(tokens[0]);
+
+                if (atom_id != atom_index + 1 && atom_id != atom_index) {
+                  throw std::runtime_error("Invalid ADT-MOL2 atom record: unexpected atom id " +
+                                           std::to_string(atom_id) + ", expected " +
+                                           std::to_string(atom_index + 1));
+                }
+
+                const auto& elem_str   = tokens[1];
+                const auto x           = static_cast<fp_type>(std::stod(tokens[2]));
+                const auto y           = static_cast<fp_type>(std::stod(tokens[3]));
+                const auto z           = static_cast<fp_type>(std::stod(tokens[4]));
+                const auto& adt        = tokens[5];
+                const auto charge      = static_cast<fp_type>(std::stod(tokens[6]));
+                const bool is_aromatic = std::stoi(tokens[7]) != 0;
+
+                molecule.x(atom_index) = x;
+                molecule.y(atom_index) = y;
+                molecule.z(atom_index) = z;
+
+                molecule.elements(atom_index)      = parse_element_symbol(elem_str);
+                molecule.autodock_type(atom_index) = parse_autodock_type(adt);
+
+                molecule.residue_id(atom_index)        = 1;
+                molecule.residue_name(atom_index)      = "LIG";
+                molecule.atom_residue_type(atom_index) = residue_type::UNKNOWN;
+
+                molecule.atom_name(atom_index)  = elem_str;
+                molecule.sybyl_type(atom_index) = parse_sybyl_atom_type(elem_str);
+
+                molecule.charge(atom_index)      = charge;
+                molecule.is_aromatic(atom_index) = is_aromatic;
+              } else {
                 throw std::runtime_error("Invalid ADT-MOL2 atom record: " + line);
               }
-
-              const auto atom_id = std::stoi(tokens[0]);
-
-              // Optional sanity check: atom IDs in the file should normally be 1-based.
-              if (atom_id != atom_index + 1) {
-                throw std::runtime_error("Invalid ADT-MOL2 atom record: unexpected atom id " +
-                                         std::to_string(atom_id) + ", expected " +
-                                         std::to_string(atom_index + 1));
-              }
-
-              const auto& atom_name   = tokens[1];
-              const auto x            = static_cast<fp_type>(std::stod(tokens[2]));
-              const auto y            = static_cast<fp_type>(std::stod(tokens[3]));
-              const auto z            = static_cast<fp_type>(std::stod(tokens[4]));
-              const auto& sybyl_type  = tokens[5];
-              const auto residue_id   = std::stoi(tokens[6]);
-              const auto& residue_name = tokens[7];
-              const auto& adt         = tokens[8];
-              const auto charge       = static_cast<fp_type>(std::stod(tokens[9]));
-              const bool is_aromatic  = std::stoi(tokens[10]) != 0;
-
-              molecule.x(atom_index) = x;
-              molecule.y(atom_index) = y;
-              molecule.z(atom_index) = z;
-
-              const auto parsed_sybyl_type       = parse_sybyl_atom_type(sybyl_type);
-              molecule.elements(atom_index)      = get_element(parsed_sybyl_type);
-              molecule.autodock_type(atom_index) = parse_autodock_type(adt);
-
-              molecule.residue_id(atom_index)   = residue_id;
-              molecule.residue_name(atom_index) = residue_name;
-              molecule.atom_residue_type(atom_index) = parse_residue_type(residue_name);
-
-              molecule.atom_name(atom_index)  = atom_name;
-              molecule.sybyl_type(atom_index) = parsed_sybyl_type;
-
-              molecule.charge(atom_index)      = charge;
-              molecule.is_aromatic(atom_index) = is_aromatic;
 
               atom_index += 1;
             }
@@ -225,8 +257,8 @@ namespace mudock {
                 throw std::runtime_error("Invalid ADT-MOL2 bond record: " + line);
               }
 
-              // Optional sanity check: bond IDs should normally be 1-based.
-              if (bond_id != bond_index + 1) {
+              // Optional sanity check: bond IDs can be 1-based (modern) or 0-based (legacy).
+              if (bond_id != bond_index + 1 && bond_id != bond_index) {
                 throw std::runtime_error("Invalid ADT-MOL2 bond record: unexpected bond id " +
                                          std::to_string(bond_id) + ", expected " +
                                          std::to_string(bond_index + 1));

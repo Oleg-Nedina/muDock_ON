@@ -1,9 +1,16 @@
+/**
+ * @file queue_alpaka.cpp
+ * @brief Implementation of the Alpaka compute queue and device synchronization.
+ * @details Contains PIMPL definition for `queue_alpaka::impl`, device acquisition,
+ *          kernel lock management, and stream synchronization wrappers.
+ */
+
 #include <alpaka/alpaka.hpp>
 #include <cassert>
 #include <mudock/alpaka_implementation/queue_alpaka.hpp>
 #include <mudock/log.hpp>
-#include <stdexcept>
 #include <mutex>
+#include <stdexcept>
 
 namespace mudock {
   namespace alpaka_backend {
@@ -12,19 +19,42 @@ namespace mudock {
       device_kernel_lock alpaka_kernel_locks[k_max_devices];
     } // namespace
 
+    /**
+     * @brief Retrieves the device-specific kernel lock structure.
+     * @details Maps CPU devices to index 0 (as only a single DevCpu device exists)
+     *          and GPU devices to their corresponding index modulo `k_max_devices`.
+     *          Lazily instantiates the associated Alpaka event on first access.
+     * @param dev_id Requested device index.
+     * @param dev Reference to the underlying Alpaka device object.
+     * @return Pointer to the static `device_kernel_lock` entry.
+     */
+    //controllare se mettere static
     device_kernel_lock* get_kernel_lock(int dev_id, const dev_acc& dev) {
-      if (!alpaka_kernel_locks[dev_id].event) {
-        alpaka_kernel_locks[dev_id].event = std::make_unique<event_acc>(dev);
+      const int safe_id = std::is_same_v<dev_acc, alpaka::DevCpu> ? 0 : (dev_id % k_max_devices);
+      if (!alpaka_kernel_locks[safe_id].event) {
+        alpaka_kernel_locks[safe_id].event = std::make_unique<event_acc>(dev);
       }
-      return &alpaka_kernel_locks[dev_id];
+      return &alpaka_kernel_locks[safe_id];
     }
   } // namespace alpaka_backend
 
+  /**
+   * @struct queue_alpaka::impl
+   * @brief Private implementation holding Alpaka device and queue instances.
+   * @details Isolates the heavy Alpaka template types from external translation units.
+   */
   struct queue_alpaka::impl {
-    dev_acc device;
-    queue_acc queue;
+    dev_acc device;  ///< Native Alpaka device object.
+    queue_acc queue; ///< Native Alpaka command execution queue.
 
-    impl(const int id): device(alpaka::getDevByIdx(alpaka::Platform<acc>{}, id)), queue(device) {}
+    /**
+     * @brief Constructs implementation by resolving the device and initializing its queue.
+     * @param id Device index (automatically clamped to 0 for CPU).
+     */
+    impl(const int id)
+        : device(
+              alpaka::getDevByIdx(alpaka::Platform<acc>{}, std::is_same_v<dev_acc, alpaka::DevCpu> ? 0 : id)),
+          queue(device) {}
   };
 
   queue_alpaka::queue_alpaka(const int _id, const device_type _dev_type)

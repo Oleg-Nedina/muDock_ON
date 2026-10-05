@@ -1,5 +1,13 @@
 #pragma once
 
+/**
+ * @file mutate_alpaka.hpp
+ * @brief Device-side molecular transformation and conformation mutation primitives.
+ * @details Implements inline Alpaka device functions for rigid-body translation,
+ *          rigid-body Euler rotation around the molecular centroid, and flexible
+ *          torsional rotation of molecular fragments around rotatable bonds.
+ */
+
 #include <alpaka/alpaka.hpp>
 #include <cmath>
 #include <mudock/type_alias.hpp>
@@ -7,6 +15,23 @@
 
 namespace mudock {
 
+  /**
+   * @brief Translates all atoms of a molecule by a 3D Cartesian offset.
+   * @details Each thread in the block processes atoms in strides of `BLOCK_SIZE`,
+   *          applying loop unrolling via `ALPAKA_UNROLL`.
+   *
+   * @tparam MAX_ATOMS Static upper bound on the number of atoms for loop unrolling.
+   * @tparam BLOCK_SIZE Block thread count.
+   * @tparam TAcc Alpaka accelerator type.
+   * @param[in] acc Context reference to the accelerator device.
+   * @param[in,out] x Array of atom X coordinates.
+   * @param[in,out] y Array of atom Y coordinates.
+   * @param[in,out] z Array of atom Z coordinates.
+   * @param offset_x Translation offset along the X axis.
+   * @param offset_y Translation offset along the Y axis.
+   * @param offset_z Translation offset along the Z axis.
+   * @param num_atoms Total number of atoms in the molecule.
+   */
   template<int MAX_ATOMS, int BLOCK_SIZE, typename TAcc>
   ALPAKA_FN_ACC ALPAKA_FN_INLINE void translate_molecule_alpaka(TAcc const& acc,
                                                fp_type* __restrict__ x,
@@ -29,6 +54,24 @@ namespace mudock {
     }
   }
 
+  /**
+   * @brief Rotates all atoms of a molecule around its geometric center using Euler angles.
+   * @details Computes the molecular centroid via parallel warp shuffle reduction (`alpaka::warp::shfl_down`),
+   *          constructs a 3D rotation matrix from Euler angles (X-Y-Z convention) using accelerated
+   *          trigonometric intrinsics (`alpaka::math::cos`/`sin`), and transforms all atomic coordinates.
+   *
+   * @tparam MAX_ATOMS Static upper bound on the number of atoms for loop unrolling.
+   * @tparam BLOCK_SIZE Block thread count.
+   * @tparam TAcc Alpaka accelerator type.
+   * @param[in] acc Context reference to the accelerator device.
+   * @param[in,out] x Array of atom X coordinates.
+   * @param[in,out] y Array of atom Y coordinates.
+   * @param[in,out] z Array of atom Z coordinates.
+   * @param angle_x Rotation angle around X axis in degrees.
+   * @param angle_y Rotation angle around Y axis in degrees.
+   * @param angle_z Rotation angle around Z axis in degrees.
+   * @param num_atoms Total number of atoms in the molecule.
+   */
   template<int MAX_ATOMS, int BLOCK_SIZE, typename TAcc>
   ALPAKA_FN_ACC ALPAKA_FN_INLINE void rotate_molecule_alpaka(TAcc const& acc,
                                             fp_type* __restrict__ x,
@@ -99,6 +142,25 @@ namespace mudock {
     }
   }
 
+  /**
+   * @brief Rotates a flexible molecular sub-fragment around an arbitrary bond axis.
+   * @details Computes the directed rotation axis between atoms `start_index` and `stop_index`,
+   *          constructs an arbitrary-axis rotation matrix using Rodrigues' rotation formula,
+   *          and applies the rotation to all atoms flagged with a non-zero value in `bitmask`.
+   *
+   * @tparam MAX_ATOMS Static upper bound on the number of atoms for loop unrolling.
+   * @tparam BLOCK_SIZE Block thread count.
+   * @tparam TAcc Alpaka accelerator type.
+   * @param[in] acc Context reference to the accelerator device.
+   * @param[in,out] x Array of atom X coordinates.
+   * @param[in,out] y Array of atom Y coordinates.
+   * @param[in,out] z Array of atom Z coordinates.
+   * @param[in] bitmask Mask array indicating which atoms belong to the rotatable fragment.
+   * @param start_index Index of the origin atom defining the rotation axis.
+   * @param stop_index Index of the terminal atom defining the rotation axis.
+   * @param angle Torsion rotation angle in degrees.
+   * @param num_atoms Total number of atoms in the molecule.
+   */
   template<int MAX_ATOMS, int BLOCK_SIZE, typename TAcc>
   ALPAKA_FN_ACC ALPAKA_FN_INLINE void rotate_fragment_alpaka(TAcc const& acc,
                                             fp_type* __restrict__ x,

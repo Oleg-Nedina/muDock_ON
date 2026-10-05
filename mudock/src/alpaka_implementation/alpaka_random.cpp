@@ -1,3 +1,10 @@
+/**
+ * @file alpaka_random.cpp
+ * @brief Implementation of device-side PRNG initialization and allocation.
+ * @details Implements the `init_alpaka_rand` initialization kernel and methods of
+ *          `alpaka_random_object` to seed Philox/Mersenne-Twister engines on accelerator devices.
+ */
+
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -6,7 +13,21 @@
 
 namespace mudock {
 
+  /**
+   * @struct init_alpaka_rand
+   * @brief Kernel initializing device PRNG states across a 1D grid.
+   * @details Computes global thread ID and grid stride to initialize `alpaka_rand_state`
+   *          instances with unique sub-sequences derived from a common base seed and sequence index.
+   */
   struct init_alpaka_rand {
+    /**
+     * @brief Kernel body initializing random states.
+     * @tparam TAcc Alpaka accelerator type.
+     * @param[in] acc Reference to the execution context.
+     * @param[out] state Device array of random generator states.
+     * @param seed Base numeric seed.
+     * @param num_elements Total number of generator states to initialize.
+     */
     template<typename TAcc>
     ALPAKA_FN_ACC void operator()(TAcc const& acc,
                                   alpaka_rand_state* state,
@@ -21,6 +42,11 @@ namespace mudock {
     }
   };
 
+  /**
+   * @brief Allocates and initializes device random state buffers with an explicit seed.
+   * @param num_elements Required number of generator states.
+   * @param seed Seed value used to initialize states if buffer is resized.
+   */
   void alpaka_random_object::alloc(const std::size_t num_elements, const std::size_t seed) {
     const auto current_size = state.num_elements();
     const bool needs_init   = num_elements > current_size;
@@ -33,6 +59,10 @@ namespace mudock {
     }
   }
 
+  /**
+   * @brief Allocates and initializes device random state buffers using high-resolution clock seed.
+   * @param num_elements Required number of generator states.
+   */
   void alpaka_random_object::alloc(const std::size_t num_elements) {
     alloc(num_elements, std::chrono::high_resolution_clock::now().time_since_epoch().count());
   }
