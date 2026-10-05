@@ -381,7 +381,7 @@ namespace mudock {
               bucket_multiple = {1, num_sms};
             } else {
               // GPU backends (CUDA, HIP)
-              // Simulazione euristica dell'occupancy (pressione sui registri all'aumentare di n_atoms)
+              // Heuristic occupancy scaling (register pressure compensation as n_atoms increases)
               int blocks_per_sm = 16;
               if constexpr (n_atoms > 64)  blocks_per_sm = 12;
               if constexpr (n_atoms > 128) blocks_per_sm = 8;

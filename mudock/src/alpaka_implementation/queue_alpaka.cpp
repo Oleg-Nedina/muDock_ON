@@ -28,7 +28,6 @@ namespace mudock {
      * @param dev Reference to the underlying Alpaka device object.
      * @return Pointer to the static `device_kernel_lock` entry.
      */
-    //controllare se mettere static
     device_kernel_lock* get_kernel_lock(int dev_id, const dev_acc& dev) {
       const int safe_id = std::is_same_v<dev_acc, alpaka::DevCpu> ? 0 : (dev_id % k_max_devices);
       if (!alpaka_kernel_locks[safe_id].event) {
